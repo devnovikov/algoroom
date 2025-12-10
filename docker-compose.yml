@@ -1,0 +1,47 @@
+services:
+  # Main application (frontend + backend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: algoroom-app
+    ports:
+      - "8080:8080"
+    environment:
+      # Database configuration
+      DATABASE_URL: postgresql+asyncpg://algoroom:algoroom@postgres:5432/algoroom
+      REPOSITORY_TYPE: postgres
+      DATABASE_POOL_SIZE: 5
+      DATABASE_MAX_OVERFLOW: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: algoroom-postgres
+    environment:
+      POSTGRES_USER: algoroom
+      POSTGRES_PASSWORD: algoroom
+      POSTGRES_DB: algoroom
+    ports:
+      - "5432:5432"  # Expose for local development
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U algoroom -d algoroom"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

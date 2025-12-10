@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Node
+**/node_modules
+frontend/dist
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+backend/.venv
+**/*.egg-info
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing
+**/.coverage
+**/htmlcov
+**/.tox
+
+# Docker
+docker-compose.yml
+backend/docker-compose.yml
+Dockerfile
+
+# Docs
+*.md
+!README.md
+
+# Misc
+.env
+.env.*
+!.env.example
+**/.DS_Store

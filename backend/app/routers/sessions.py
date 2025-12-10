@@ -117,7 +117,6 @@ async def update_code(
 async def broadcast_execution_result(
     session_id: str,
     result: ExecutionResult,
-    background_tasks: BackgroundTasks,
     service: SessionService = Depends(get_session_service),
     ws_manager: ConnectionManager = Depends(get_connection_manager),
 ) -> None:
@@ -134,8 +133,4 @@ async def broadcast_execution_result(
         )
 
     # Broadcast execution result to all connected WebSocket clients
-    background_tasks.add_task(
-        ws_manager.broadcast_execution_result,
-        session_id,
-        result,
-    )
+    await ws_manager.broadcast_execution_result(session_id, result)
