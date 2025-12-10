@@ -1,0 +1,586 @@
+openapi: 3.1.0
+info:
+  title: Algoroom API
+  version: 1.0.0
+  description: |
+    Real-time collaborative code execution platform API.
+
+    Algoroom enables multiple users to collaboratively write and execute code in JavaScript or Python.
+    The API provides RESTful endpoints for session management and code execution, plus WebSocket
+    connections for real-time synchronization.
+
+    ## Features
+    - Create and manage collaborative coding sessions
+    - Execute JavaScript and Python code securely
+    - Real-time updates via WebSocket
+    - Track session participants
+
+  contact:
+    name: Algoroom API Support
+    url: https://github.com/algoroom
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://api.algoroom.dev
+    description: Production server
+
+tags:
+  - name: sessions
+    description: Session management operations
+  - name: execution
+    description: Code execution operations
+  - name: websocket
+    description: Real-time synchronization endpoints
+
+paths:
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Create a new session
+      description: |
+        Creates a new collaborative coding session with optional language specification.
+        If no language is provided, defaults to 'javascript'.
+
+        Returns a unique session ID that can be used to join the session and execute code.
+      tags:
+        - sessions
+      requestBody:
+        description: Optional session configuration
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+            examples:
+              javascript:
+                summary: Create JavaScript session
+                value:
+                  language: javascript
+              python:
+                summary: Create Python session
+                value:
+                  language: python
+              default:
+                summary: Create session with default language
+                value: {}
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                new_session:
+                  summary: Newly created session
+                  value:
+                    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    code: ""
+                    language: javascript
+                    createdAt: "2025-12-10T10:30:00Z"
+                    participants: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /sessions/{sessionId}:
+    get:
+      operationId: getSession
+      summary: Get session by ID
+      description: |
+        Retrieves details of an existing session including current code, language,
+        creation timestamp, and participant count.
+      tags:
+        - sessions
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Session found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                active_session:
+                  summary: Active session with code
+                  value:
+                    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    code: "console.log('Hello, World!');"
+                    language: javascript
+                    createdAt: "2025-12-10T10:30:00Z"
+                    participants: 3
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /sessions/{sessionId}/code:
+    put:
+      operationId: updateSessionCode
+      summary: Update session code
+      description: |
+        Updates the code content for a session. Optionally updates the language.
+        This operation broadcasts the change to all connected participants via WebSocket.
+
+        **Note:** Language changes may clear existing code depending on server implementation.
+      tags:
+        - sessions
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCodeRequest'
+            examples:
+              code_only:
+                summary: Update code only
+                value:
+                  code: |
+                    function greet(name) {
+                      return `Hello, ${name}!`;
+                    }
+                    console.log(greet('World'));
+              code_and_language:
+                summary: Update code and switch language
+                value:
+                  code: |
+                    def greet(name):
+                        return f"Hello, {name}!"
+                    print(greet("World"))
+                  language: python
+      responses:
+        '200':
+          description: Code updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                updated_session:
+                  summary: Session after code update
+                  value:
+                    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    code: "console.log('Updated code');"
+                    language: javascript
+                    createdAt: "2025-12-10T10:30:00Z"
+                    participants: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /sessions/{sessionId}/execute:
+    post:
+      operationId: executeSessionCode
+      summary: Execute session code
+      description: |
+        Executes the current code in the session using the configured language runtime.
+        Returns execution results including stdout, stderr, execution time, and success status.
+
+        **Security:** Code is executed in a sandboxed environment with resource limits.
+      tags:
+        - execution
+      parameters:
+        - $ref: '#/components/parameters/sessionId'
+      responses:
+        '200':
+          description: Code executed (may contain runtime errors)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResult'
+              examples:
+                success:
+                  summary: Successful execution
+                  value:
+                    success: true
+                    output: "Hello, World!\n"
+                    executionTime: 45
+                runtime_error:
+                  summary: Runtime error
+                  value:
+                    success: false
+                    output: ""
+                    error: "ReferenceError: undefined variable 'x'\n  at line 2"
+                    executionTime: 12
+                timeout:
+                  summary: Execution timeout
+                  value:
+                    success: false
+                    output: "Partial output...\n"
+                    error: "Execution timeout after 5000ms"
+                    executionTime: 5000
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+webhooks:
+  sessionUpdates:
+    post:
+      operationId: onSessionUpdate
+      summary: Session update notifications
+      description: |
+        **WebSocket Endpoint:** `ws://localhost:8000/ws/sessions/{sessionId}`
+
+        Real-time updates pushed to all session participants. Connect using WebSocket protocol.
+
+        ## Connection
+        ```javascript
+        const ws = new WebSocket('ws://localhost:8000/ws/sessions/{sessionId}');
+
+        ws.onmessage = (event) => {
+          const update = JSON.parse(event.data);
+          console.log('Update type:', update.type);
+        };
+        ```
+
+        ## Update Types
+        - `code_update`: Code or language changed
+        - `participant_joined`: New participant connected
+        - `participant_left`: Participant disconnected
+
+        ## Lifecycle
+        1. Client connects to WebSocket endpoint
+        2. Server increments participant count and broadcasts `participant_joined`
+        3. Client receives updates as JSON messages
+        4. On disconnect, server broadcasts `participant_left`
+      tags:
+        - websocket
+      requestBody:
+        description: Session update message
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionUpdate'
+            examples:
+              code_update:
+                summary: Code changed
+                value:
+                  type: code_update
+                  sessionId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  code: "console.log('New code');"
+                  language: javascript
+                  timestamp: "2025-12-10T10:35:00Z"
+              participant_joined:
+                summary: New participant
+                value:
+                  type: participant_joined
+                  sessionId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  participants: 4
+                  timestamp: "2025-12-10T10:36:00Z"
+              participant_left:
+                summary: Participant disconnected
+                value:
+                  type: participant_left
+                  sessionId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  participants: 3
+                  timestamp: "2025-12-10T10:38:00Z"
+      responses:
+        '200':
+          description: Update received by client
+
+components:
+  parameters:
+    sessionId:
+      name: sessionId
+      in: path
+      required: true
+      description: Unique session identifier (UUID format)
+      schema:
+        type: string
+        format: uuid
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+  schemas:
+    Session:
+      type: object
+      required:
+        - id
+        - code
+        - language
+        - createdAt
+        - participants
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique session identifier
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        code:
+          type: string
+          description: Current code content in the session
+          example: "console.log('Hello, World!');"
+        language:
+          type: string
+          enum:
+            - javascript
+            - python
+          description: Programming language for the session
+          example: javascript
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of session creation
+          example: "2025-12-10T10:30:00Z"
+        participants:
+          type: integer
+          minimum: 0
+          description: Number of currently connected participants
+          example: 3
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        language:
+          type: string
+          enum:
+            - javascript
+            - python
+          description: Programming language for the session (defaults to 'javascript')
+          default: javascript
+          example: javascript
+
+    UpdateCodeRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: New code content to set
+          example: "console.log('Updated code');"
+        language:
+          type: string
+          enum:
+            - javascript
+            - python
+          description: Optional language change
+          example: python
+
+    ExecutionResult:
+      type: object
+      required:
+        - success
+        - output
+        - executionTime
+      properties:
+        success:
+          type: boolean
+          description: Whether execution completed without errors
+          example: true
+        output:
+          type: string
+          description: Standard output from code execution
+          example: "Hello, World!\n42\n"
+        error:
+          type: string
+          description: Error message if execution failed
+          nullable: true
+          example: "SyntaxError: Unexpected token"
+        executionTime:
+          type: integer
+          minimum: 0
+          description: Execution duration in milliseconds
+          example: 145
+
+    SessionUpdate:
+      type: object
+      required:
+        - type
+        - sessionId
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum:
+            - code_update
+            - participant_joined
+            - participant_left
+          description: Type of update event
+          example: code_update
+        sessionId:
+          type: string
+          format: uuid
+          description: Session this update belongs to
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        code:
+          type: string
+          description: New code content (present for code_update)
+          nullable: true
+          example: "console.log('Hello');"
+        language:
+          type: string
+          enum:
+            - javascript
+            - python
+          description: New language (present for code_update)
+          nullable: true
+          example: javascript
+        participants:
+          type: integer
+          minimum: 0
+          description: Current participant count (present for participant events)
+          nullable: true
+          example: 5
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when the update occurred
+          example: "2025-12-10T10:35:00Z"
+
+    ApiError:
+      type: object
+      required:
+        - message
+        - code
+        - status
+      properties:
+        message:
+          type: string
+          description: Human-readable error description
+          example: "Session not found"
+        code:
+          type: string
+          description: Machine-readable error code
+          example: "SESSION_NOT_FOUND"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 404
+      example:
+        message: "Session not found"
+        code: "SESSION_NOT_FOUND"
+        status: 404
+
+  responses:
+    BadRequest:
+      description: Invalid request format or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          examples:
+            invalid_language:
+              summary: Invalid language specified
+              value:
+                message: "Invalid language. Must be 'javascript' or 'python'"
+                code: "INVALID_LANGUAGE"
+                status: 400
+            missing_code:
+              summary: Missing required field
+              value:
+                message: "Field 'code' is required"
+                code: "MISSING_FIELD"
+                status: 400
+            invalid_json:
+              summary: Malformed JSON
+              value:
+                message: "Invalid JSON in request body"
+                code: "INVALID_JSON"
+                status: 400
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          examples:
+            session_not_found:
+              summary: Session doesn't exist
+              value:
+                message: "Session with ID 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' not found"
+                code: "SESSION_NOT_FOUND"
+                status: 404
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          examples:
+            server_error:
+              summary: Generic server error
+              value:
+                message: "An unexpected error occurred"
+                code: "INTERNAL_SERVER_ERROR"
+                status: 500
+            execution_error:
+              summary: Execution service failure
+              value:
+                message: "Code execution service unavailable"
+                code: "EXECUTION_SERVICE_ERROR"
+                status: 500
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key authentication for server-to-server requests.
+        Not required for WebSocket connections.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT-based authentication for authenticated users.
+        Optional for public sessions.
+
+security: []  # No authentication required by default (public sessions)
+
+x-webhooks-info:
+  description: |
+    ## WebSocket Connection Details
+
+    **Base URL:** `ws://localhost:8000` (development) or `wss://api.algoroom.dev` (production)
+
+    **Endpoint Pattern:** `/ws/sessions/{sessionId}`
+
+    ### Connection Example
+    ```javascript
+    const sessionId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const ws = new WebSocket(`ws://localhost:8000/ws/sessions/${sessionId}`);
+
+    ws.onopen = () => {
+      console.log('Connected to session');
+    };
+
+    ws.onmessage = (event) => {
+      const update = JSON.parse(event.data);
+      handleUpdate(update);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('Disconnected from session');
+    };
+    ```
+
+    ### Protocol
+    - Messages are JSON-formatted strings
+    - All updates match the SessionUpdate schema
+    - No client-to-server messages required (server broadcasts only)
+    - Connection is automatically added as a participant
+
+    ### Error Handling
+    - Invalid session ID: WebSocket closes with code 1008
+    - Server shutdown: WebSocket closes with code 1001
+    - Network error: Client receives error event
